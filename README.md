@@ -4,7 +4,7 @@ Sistema agentico che automatizza la gestione dell'inventario e degli ordini ai f
 
 Progetto sviluppato per la tesi sperimentale di laurea triennale in **Digital Economics and Business**, relatore Prof. Alex Mircoli (Università Politecnica delle Marche, luglio 2026).
 
-**Stack:** n8n (self-hosting su VPS Hostinger) · MariaDB · Google Gemini via API · Gmail API · JavaScript
+**Stack:** n8n (self-hosting su VPS Hostinger) · MariaDB · Google Gemini via API · Gmail API 
 
 ---
 

@@ -31,7 +31,6 @@ flowchart LR
 
 ### Workflow 1 · Inventario e riordino
 
-File: [`workflows/1-agentic-inventory-and-ordering.json`](workflows/1-agentic-inventory-and-ordering.json)
 
 1. Legge le comande delle ultime 8 ore (un servizio) e calcola gli ingredienti consumati tramite le ricette di ogni piatto.
 2. Scala i lotti in magazzino con logica **FEFO** (*first expired, first out*). I lotti esauriti vengono archiviati.
@@ -43,7 +42,6 @@ File: [`workflows/1-agentic-inventory-and-ordering.json`](workflows/1-agentic-in
 
 ### Workflow 2 · Risposte dei fornitori e aggiornamento del magazzino
 
-File: [`workflows/2-supplier-replies-and-inventory-update.json`](workflows/2-supplier-replies-and-inventory-update.json)
 
 1. Ogni 5 minuti controlla le email non lette e le abbina agli ordini in attesa tramite il thread Gmail.
 2. Un **LLM** interpreta l'email (testo libero) e restituisce per ogni prodotto un JSON strutturato: stato, quantità confermata, prezzo, numero di lotto, data di consegna.
@@ -58,7 +56,6 @@ File: [`workflows/2-supplier-replies-and-inventory-update.json`](workflows/2-sup
 
 ### Database
 
-File: [`database/automated_inventory_restaurants.sql`](database/automated_inventory_restaurants.sql)
 
 Schema relazionale MariaDB a 9 tabelle, progettato da zero:
 

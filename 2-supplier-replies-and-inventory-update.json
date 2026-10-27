@@ -1,0 +1,1383 @@
+{
+  "name": "2-INVENTORY UPDATING",
+  "nodes": [
+    {
+      "parameters": {
+        "modelName": "models/gemini-flash-lite-latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -496,
+        -336
+      ],
+      "id": "50ee79c9-c16c-454d-8f18-16255c44fd18",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "U7TOA55liM8ftKWj",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 5,
+              "unit": "=minutes"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "readStatus": "unread"
+        },
+        "options": {
+          "dataPropertyAttachmentsPrefixName": "attachment_"
+        }
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -976,
+        -640
+      ],
+      "id": "e9f289da-15c0-43c2-b32c-5729c869f4b9",
+      "name": "POLL SUPPLIER MAILS",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  s.supplier_id,\n  s.sup_name,\n  s.sup_mail,\n  sp.product_id,\n  sp.supplier_product_code,\n  sp.price_per_unit,\n  ri.NAME,\n  ri.UNIT,\n  ri.PRODUCT_ID AS rest_product_id,\n  po.ordered_quantity,\n  po.ordered_unit,\n  po.order_id\nFROM suppliers s\nJOIN pending_orders po ON po.supplier_id = s.supplier_id\nJOIN rest_inventory ri ON po.product_id = ri.PRODUCT_ID\nJOIN supplier_products sp ON sp.product_id = po.product_id \n  AND sp.supplier_id = po.supplier_id\nWHERE po.gmail_thread_id = '{{ $json.threadId }}'\n  AND po.status = 'pending'\n  AND s.sup_mail = '{{ $json.from.value[0].address }}'",
+        "options": {
+          "queryReplacement": "='{{ $json.from.value[0].address }}'"
+        }
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -752,
+        -416
+      ],
+      "id": "51f21175-d70d-4f23-8e64-3eb19ee182e5",
+      "name": "SELECT UNREAD MAILS",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {
+          "systemMessage": "Sei un assistente che analizza email di fornitori alimentari. \nRispondi SEMPRE e SOLO con un oggetto JSON valido, nessun testo aggiuntivo, nessun markdown, nessun backtick."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -448,
+        -512
+      ],
+      "id": "5b4df326-fae8-440d-b9b5-ae6404bd2892",
+      "name": "MAIL INTERPETER"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output || '';\nconst cleaned = raw.replace(/```json|```/g, '').trim();\nlet parsed = JSON.parse(cleaned);\n\n// Se l'AI ha avvolto l'array in {products: [...]}, estrai l'array\nif (parsed && parsed.products && Array.isArray(parsed.products)) {\n  parsed = parsed.products;\n}\n// Se è un singolo oggetto, incapsulalo in array\nif (!Array.isArray(parsed)) {\n  parsed = [parsed];\n}\nconst dbItems = $('SELECT UNREAD MAILS').all();\nconst dbByCode = {};\nconst dbByName = {};\ndbItems.forEach(function(item) {\n  if (item.json.supplier_product_code) {\n    dbByCode[item.json.supplier_product_code] = item.json;\n  }\n  if (item.json.NAME) {\n    dbByName[item.json.NAME.toLowerCase()] = item.json;\n  }\n});\nreturn parsed.map(function(p) {\n  const code = p.supplier_product_code || '';\n  const pname = (p.product_name || '').toLowerCase();\n  const db = dbByCode[code] || dbByName[pname] || {};\n  return {\n    json: {\n      status: p.status,\n      supplier_product_code: p.supplier_product_code || db.supplier_product_code,\n      product_name: p.product_name,\n      confirmed_quantity: p.confirmed_quantity || db.ordered_quantity,\n      total_price: p.total_price,\n      batch_number: p.batch_number || null,\n      alternative_product_name: p.alternative_product_name,\n      alternative_product_code: p.alternative_product_code,\n      delivery_date: p.delivery_date,\n      order_id: db.order_id || null,\n      product_id: db.product_id || null,\n      supplier_id: db.supplier_id || null,\n      price_per_unit: db.price_per_unit || null,\n      ordered_unit: db.ordered_unit || null,\n      ordered_quantity: db.ordered_quantity || null\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        -512
+      ],
+      "id": "dd205404-f373-412f-b28f-281e558ca286",
+      "name": "PARSE AI RESPONSE"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Sei un esperto HACCP per la ristorazione italiana.\nProdotto: {{ $json.product_name }}\nData consegna: {{ $json.delivery_date }}\n\nCalcola la data di scadenza sommando alla data di consegna la shelf-life tipica dela categoria del prodotto secondo le normative HACCP italiane (Reg. CE 852/2004).\n\nRispondi SOLO con questo JSON, nessun testo aggiuntivo:\n{\"expiry_date\": \"YYYY-MM-DD\", \"rule_applied\": \"<breve descrizione>\"}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        512,
+        -960
+      ],
+      "id": "5da2dcb0-56a6-4872-8544-5c4da426c2b8",
+      "name": "HACCP EXPIRY RULES"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-flash-lite-latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -832
+      ],
+      "id": "7cad16ca-4c12-4d64-a461-364b6a8848bc",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "U7TOA55liM8ftKWj",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.text || '';\nconst cleaned = raw.replace(/```json|```/g, '').trim();\nconst haccp = JSON.parse(cleaned);\nconst upstream = $('SUPPLIER RESPONSE SWITCH').item.json;\n\nconst unitCost = upstream.total_price\n  ? parseFloat((upstream.total_price / upstream.confirmed_quantity).toFixed(4))\n  : upstream.price_per_unit;\n\nreturn [{ json: {\n  product_id: upstream.product_id,\n  order_id: upstream.order_id,\n  supplier_id: upstream.supplier_id,\n  confirmed_quantity: upstream.confirmed_quantity,\n  unit_cost: unitCost,\n  expiry_date: haccp.expiry_date,\n  batch_number: upstream.batch_number\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        -960
+      ],
+      "id": "b7380e07-bc57-48e8-ab1b-6469a3693f64",
+      "name": "PARSE HACCP RULES"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO batch \n  (batch_number, product_id, initial_quantity, quantity, expiry_date, unit_cost, supplier_id)\nVALUES \n  ('{{ $json.batch_number }}', {{ $json.product_id }}, {{ $json.confirmed_quantity }}, {{ $json.confirmed_quantity }}, '{{ $json.expiry_date }}', {{ $json.unit_cost }}, {{ $json.supplier_id }});\n\nUPDATE pending_orders\nSET status = 'confirmed'\nWHERE order_id = {{ $json.order_id }};\n\nUPDATE rest_inventory ri\nLEFT JOIN (\n  SELECT product_id, SUM(quantity) AS tot_qty,\n         SUM(quantity * unit_cost) / NULLIF(SUM(quantity), 0) AS wac\n  FROM batch GROUP BY product_id\n) agg ON ri.PRODUCT_ID = agg.product_id\nSET ri.QUANTITY = COALESCE(agg.tot_qty, 0),\n    ri.UNIT_COST = COALESCE(agg.wac, ri.UNIT_COST);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1008,
+        -960
+      ],
+      "id": "5fc3900c-4380-45a4-8ba4-c728dd685451",
+      "name": "ORDER CONFIRMED;INVENTORY UPDATED",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const today = new Date().toISOString().split('T')[0];\nconst emailData = $('POLL SUPPLIER MAILS').first().json;\nconst dbItems = $('SELECT UNREAD MAILS').all();\n\nconst emailBody = emailData.text || emailData.snippet || '';\nconst supMail = dbItems[0].json.sup_mail || '';\n\nconst productList = dbItems.map(function(item) {\n  return '- ' + item.json.NAME + ' (codice: ' + item.json.supplier_product_code + ', quantità ordinata: ' + item.json.ordered_quantity + ' ' + item.json.ordered_unit + ')';\n}).join('\\n');\n\nconst jsonTemplate = '[\\n  {\\n    \"status\": \"confirmed | different_product | unavailable | partial\",\\n    \"supplier_product_code\": \"<codice prodotto>\",\\n    \"product_name\": \"<nome prodotto>\",\\n    \"confirmed_quantity\": null,\\n    \"total_price\": null,\\n    \"batch_number\": \"<numero lotto comunicato dal fornitore, altrimenti null>\",\\n    \"alternative_product_name\": null,\\n    \"alternative_product_code\": null,\\n    \"delivery_date\": \"<YYYY-MM-DD>\"\\n  }\\n]';\n\nconst prompt = [\n  'Sei un assistente che analizza email di risposta di fornitori alimentari italiani.',\n  'Il fornitore risponde ad un ordine che conteneva PIU PRODOTTI — analizza la risposta per CIASCUN prodotto ordinato.',\n  '',\n  'EMAIL DEL FORNITORE:',\n  emailBody,\n  '',\n  'PRODOTTI ORDINATI (analizza lo status di ognuno):',\n  productList,\n  '',\n  'ISTRUZIONI:',\n  '1. Per ogni prodotto nell\\'elenco determina lo status in base alla risposta del fornitore.',\n  '2. confirmed = il fornitore lo consegna.',\n  '3. different_product = il fornitore propone un alternativo.',\n  '4. unavailable = il fornitore non può consegnarlo.',\n  '5. partial = il fornitore conferma il prodotto ma in quantità inferiore a quella ordinata.In questo caso confirmed_quantity è la quantità che il fornitore può consegnare.',  \n  '6. Se la quantità o il prezzo non sono specificati per un prodotto lascia null.',\n  '7. batch_number = il numero di lotto che il fornitore comunica nella mail (es. \"lotto 2024-A\", \"LOT123\"). Se non lo comunica, lascia null.',\n  '8. La data di OGGI è ' + today + '. Calcola delivery_date in base a questa: se il fornitore scrive \"domani\" aggiungi 1 giorno, \"dopodomani\" 2 giorni, ecc. Usa SEMPRE l\\'anno corrente o futuro, mai passato.',\n  '',\n 'Restituisci ESCLUSIVAMENTE un array JSON che inizia con [ e termina con ].',\n  'NON avvolgere l\\'array in un oggetto contenitore. NON usare una chiave \"products\" o simili. NON aggiungere testo, spiegazioni o backtick.',\n  'Il primo carattere della tua risposta deve essere [ e l\\'ultimo deve essere ].',\n  jsonTemplate\n].join('\\n');\n\nreturn [{ json: { prompt: prompt, emailFrom: supMail } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -608,
+        -640
+      ],
+      "id": "cbd56b8c-6a59-40e8-b676-4bfa4174750c",
+      "name": "PREPARE AI CONTEXT"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  s.supplier_id,\n  s.sup_name,\n  s.sup_mail,\n  sp.supplier_product_code,\n  sp.price_per_unit,\n  ri.NAME,\n  ri.PRODUCT_ID,\n  ri.UNIT,\n  po.ordered_quantity,\n  po.ordered_unit,\n  po.order_id\nFROM supplier_products sp\nJOIN suppliers s ON sp.supplier_id = s.supplier_id\nJOIN rest_inventory ri ON sp.product_id = ri.PRODUCT_ID\nJOIN pending_orders po ON po.product_id = ri.PRODUCT_ID AND po.status = 'pending'\nWHERE sp.product_id = (\n  SELECT product_id FROM supplier_products \n  WHERE supplier_product_code = '{{ $json.supplier_product_code }}'\n  LIMIT 1\n)\nAND sp.is_preferred = 0;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        384,
+        160
+      ],
+      "id": "7d70c53c-84c2-4b5a-bfb2-9ef18b858115",
+      "name": "FIND BACKUP SUPPLIERS",
+      "alwaysOutputData": true,
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3f82656d-8445-44a2-a218-8a341a8504b4",
+              "leftValue": "={{ $json.sup_mail }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        560,
+        160
+      ],
+      "id": "121d5e4d-80b8-4f20-a559-d1e19bdb3f87",
+      "name": "If",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.sup_mail }}",
+        "subject": "ORDINE RISTORANTE BORIA'S",
+        "emailType": "text",
+        "message": "=Gentile {{ $json.sup_name }},\n\nAvremmo bisogno del seguente prodotto:\n\n- Prodotto: {{ $json.NAME }}\n- Codice: {{ $json.supplier_product_code }}\n- Quantità: {{ $json.ordered_quantity }} {{ $json.ordered_unit }}\n\nPuò confermare disponibilità e tempistiche di consegna?\n\nCordiali saluti,\nLo staff del Ristorante Boria's",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        736,
+        96
+      ],
+      "id": "36cbe7db-0f6f-44c4-9fdf-1395e71ad0af",
+      "name": "SEND ORDER BACKUP SUPPLIER",
+      "webhookId": "ad6057fd-a646-4af9-ab03-2a73829ce8fb",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "manager@example.com",
+        "subject": "=UNAVAILABILITY ALERT : {{ $('SUPPLIER RESPONSE SWITCH').item.json.product_name }}",
+        "emailType": "text",
+        "message": "=Nessun fornitore disponibile per: {{ $('SUPPLIER RESPONSE SWITCH').item.json.product_name }}\nQuantità mancante: {{ $('SUPPLIER RESPONSE SWITCH').item.json.confirmed_quantity }} {{ $('SUPPLIER RESPONSE SWITCH').item.json.ordered_unit }}\nValutare alternative manualmente.\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        736,
+        256
+      ],
+      "id": "bfc4f4d9-836b-482b-a3ad-5e30ac9146d7",
+      "name": "UNAVAILABILITY ALERT",
+      "webhookId": "dbde8d73-fef4-4451-8aa7-716ad102f1d0",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pending_orders \nSET status = 'unavailable'\nWHERE order_id = {{ $('SUPPLIER RESPONSE SWITCH').item.json.order_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        944,
+        256
+      ],
+      "id": "5d21e965-c5c5-483d-b917-4e1a0125f527",
+      "name": "UPDATE ORDER STATUS",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-flash-lite-latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        400,
+        -32
+      ],
+      "id": "be5e6979-6193-4072-899d-fbbc9a2afd90",
+      "name": "Google Gemini Chat Model2",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "U7TOA55liM8ftKWj",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Sei un esperto HACCP per la ristorazione italiana.\nProdotto: {{ $json.product_name }}\nData consegna: {{ $json.delivery_date }}\n\nApplica le normative HACCP italiane (Reg. CE 852/2004).\nRispondi SOLO con questo JSON, nessun testo aggiuntivo:\n{\"expiry_date\": \"YYYY-MM-DD\", \"rule_applied\": \"<breve descrizione>\"}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        400,
+        -176
+      ],
+      "id": "13da87b7-ba13-4699-87d2-ac719238a7f6",
+      "name": "HACCP EXPIRY RULES2"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO batch \n  (batch_number, product_id, initial_quantity, quantity, expiry_date, unit_cost, supplier_id)\nVALUES \n  ('{{ $json.batch_number }}', {{ $json.product_id }}, {{ $json.confirmed_quantity }}, {{ $json.confirmed_quantity }}, '{{ $json.expiry_date }}', {{ $json.unit_cost }}, {{ $json.supplier_id }});\n\nUPDATE pending_orders\nSET status = 'confirmed'\nWHERE order_id = {{ $json.order_id }};\n\nUPDATE rest_inventory ri\nLEFT JOIN (\n  SELECT product_id, SUM(quantity) AS tot_qty,\n         SUM(quantity * unit_cost) / NULLIF(SUM(quantity), 0) AS wac\n  FROM batch GROUP BY product_id\n) agg ON ri.PRODUCT_ID = agg.product_id\nSET ri.QUANTITY = COALESCE(agg.tot_qty, 0),\n    ri.UNIT_COST = COALESCE(agg.wac, ri.UNIT_COST);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        912,
+        -176
+      ],
+      "id": "10e87d95-bfdd-40ba-8771-cb3e61783706",
+      "name": "UPDATE PARTIAL ORDER",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  s.supplier_id,\n  s.sup_name,\n  s.sup_mail,\n  sp.supplier_product_code,\n  sp.price_per_unit,\n  ri.NAME,\n  ri.PRODUCT_ID,\n  ri.UNIT\nFROM supplier_products sp\nJOIN suppliers s ON sp.supplier_id = s.supplier_id\nJOIN rest_inventory ri ON sp.product_id = ri.PRODUCT_ID\nWHERE sp.product_id = {{ $('PARSE HACCP PARTIAL').item.json.product_id }}\nAND sp.is_preferred = 0;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1120,
+        -176
+      ],
+      "id": "ce17315d-f25d-40d0-a872-5e47e0154e56",
+      "name": "FIND BACKUP SUPPLIERS1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "77ad0d7e-2e78-40f2-a81b-84d08ea6b18a",
+              "leftValue": "={{ $json.supplier_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "number",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1328,
+        -176
+      ],
+      "id": "5c642165-b0b4-469d-b04e-2759c38a6178",
+      "name": "IF 2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.text || '';\nconst cleaned = raw.replace(/```json|```/g, '').trim();\nconst haccp = JSON.parse(cleaned);\nconst upstream = $('SUPPLIER RESPONSE SWITCH').item.json;\n\nconst unitCost = upstream.total_price\n  ? parseFloat((upstream.total_price / upstream.confirmed_quantity).toFixed(4))\n  : upstream.price_per_unit;\n\nconst difference = parseFloat((upstream.ordered_quantity - upstream.confirmed_quantity).toFixed(4));\n\nreturn [{ json: {\n  product_id: upstream.product_id,\n  order_id: upstream.order_id,\n  supplier_id: upstream.supplier_id,\n  confirmed_quantity: upstream.confirmed_quantity,\n  ordered_quantity: upstream.ordered_quantity,\n  difference: difference,\n  unit_cost: unitCost,\n  expiry_date: haccp.expiry_date,\n  batch_number: upstream.batch_number,\n  supplier_product_code: upstream.supplier_product_code,\n  product_name: upstream.product_name,\n  ordered_unit: upstream.ordered_unit\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        -176
+      ],
+      "id": "35d6ee09-2ce2-4919-9810-c058538a32a0",
+      "name": "PARSE HACCP PARTIAL"
+    },
+    {
+      "parameters": {
+        "sendTo": "manager@example.com",
+        "subject": "=⚠️ Fornitura parziale senza secondari: {{ $('PARSE HACCP PARTIAL').item.json.product_name }}",
+        "message": "=Attenzione: {{ $('PARSE HACCP PARTIAL').item.json.product_name }} è stato consegnato parzialmente.\nQuantità mancante: {{ $('PARSE HACCP PARTIAL').first().json.difference }} {{ $('PARSE HACCP PARTIAL').first().json.ordered_unit }}.\nNessun fornitore secondario disponibile. Valutare alternative manualmente.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1536,
+        -64
+      ],
+      "id": "265bcdbe-6cfb-40b3-a571-2b6d8172394c",
+      "name": "ALERT PARTIALITY",
+      "webhookId": "1bcd63a0-9b61-4548-9f65-611fe8f6217d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.sup_mail }}: {{ $json.NAME }}",
+        "subject": "ORDINE RISTORANTE BORIA'S :",
+        "message": "=Gentile {{ $json.sup_name }},\n\nAvremmo bisogno di una fornitura integrativa:\n\n- Prodotto: {{ $json.NAME }}\n- Codice: {{ $json.supplier_product_code }}\n- Quantità necessaria: {{ $('PARSE HACCP PARTIAL').first().json.difference }} {{ $('PARSE HACCP PARTIAL').first().json.ordered_unit }}\n\nPuò confermare disponibilità e tempistiche?\n\nCordiali saluti,\nLo staff del Ristorante Boria's",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1536,
+        -304
+      ],
+      "id": "dab4f80f-e921-4a1f-9074-21137840e8c9",
+      "name": "ORDER MISSING QUANTITY",
+      "webhookId": "4c3ccdfe-ec96-4bab-9f4d-f4815d9c6c72",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pending_orders \nSET gmail_thread_id = '{{ $json.threadId }}'\nWHERE order_id = {{ $json.orderId }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1088,
+        96
+      ],
+      "id": "224c4874-8f08-4636-8331-a05657e43a9f",
+      "name": "UPDATE ORDER STATUS1",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sentMail = $input.first().json;\nconst dbData = $('FIND BACKUP SUPPLIERS').first().json;\n\nreturn [{ json: {\n  threadId: sentMail.threadId || '',\n  orderId: dbData.order_id\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        96
+      ],
+      "id": "8a271356-7a5f-4ac2-b33b-c3a32f2dec19",
+      "name": "PARSE ORDER"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sentMail = $input.first().json;\nconst codeData = $('PARSE HACCP PARTIAL').first().json;\n\nreturn [{ json: {\n  threadId: sentMail.threadId || '',\n  difference: codeData.difference,\n  ordered_unit: codeData.ordered_unit,\n  product_name: codeData.product_name\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1744,
+        -304
+      ],
+      "id": "fa98c244-43f5-4e24-92f6-40baa4492179",
+      "name": "PARSE ORDER2"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pending_orders \n  (supplier_id, product_id, supplier_product_code, ordered_quantity, ordered_unit, gmail_thread_id)\nSELECT \n  sp.supplier_id,\n  sp.product_id,\n  sp.supplier_product_code,\n  {{ $json.difference }},\n  '{{ $json.ordered_unit }}',\n  '{{ $json.threadId }}'\nFROM supplier_products sp\nJOIN suppliers s ON sp.supplier_id = s.supplier_id\nWHERE sp.supplier_product_code = '{{ $('IF 2').item.json.supplier_product_code }}'\nAND sp.is_preferred = 0\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1920,
+        -304
+      ],
+      "id": "ed2c5e79-16a6-492b-8185-3b5384ea0ce5",
+      "name": "UPDATE ORDER STATUS2",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "confirmed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "f34f380c-613f-45f9-a34b-1fffc77ed9ee"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CONFIRMED"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "de0bdc7a-f9d4-450a-9d0d-40ba7cd8d838",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "different_product",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "DIFFERENT PRODUCT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "f4fafa64-0701-4c6d-bbd7-072f57d53615",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "partial",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "PARTIAL Q"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "8cf8b82b-440c-4348-98d2-eb546af2ee48",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "unavailable",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "UNAVAILABLE"
+            }
+          ]
+        },
+        "options": {
+          "allMatchingOutputs": false
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        16,
+        -544
+      ],
+      "id": "0fd63c4c-a581-4371-8dc5-203c85c75439",
+      "name": "SUPPLIER RESPONSE SWITCH"
+    },
+    {
+      "parameters": {
+        "sendTo": "manager@example.com",
+        "subject": "=⚠️ Sostituzione prodotto: {{ $json.product_name }}",
+        "message": "=Il fornitore <b>{{ $('SELECT UNREAD MAILS').item.json.sup_name }}</b> non può consegnare <b>{{ $json.product_name }}</b>.<br><br>\nPropone in sostituzione: <b>{{ $json.alternative_product_name }}</b><br>\nQuantità: {{ $json.confirmed_quantity }} {{ $json.ordered_unit }}<br><br>\n<a href=\"https://TUO-SERVER-N8N/webhook-test/approve?order_id={{ $json.order_id }}&product_id={{ $json.product_id }}&alt={{ $json.alternative_product_name }}&qty={{ $json.confirmed_quantity }}&price={{ $json.total_price }}&delivery={{ $json.delivery_date }}&unit={{ $json.ordered_unit }}&batch={{ $json.batch_number }}\">✅ ACCETTA</a>\n&nbsp;&nbsp;&nbsp;\n<a href=\"https://TUO-SERVER-N8N/webhook-test/reject?order_id={{ $json.order_id }}&product_id={{ $json.product_id }}&supplier_product_code={{ $json.supplier_product_code }}&qty={{ $json.confirmed_quantity }}&unit={{ $json.ordered_unit }}&product_name={{ $json.product_name }}&sup_name={{ $('SELECT UNREAD MAILS').item.json.sup_name }}\">❌ RIFIUTA</a>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        384,
+        -592
+      ],
+      "id": "6b7c0b5d-c9b7-472e-94f5-297d5760b232",
+      "name": "ACCEPT/REJECT MESSAGE",
+      "webhookId": "d2878106-0d86-4cac-ba8f-f2688bd324a2",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Sei un esperto HACCP per la ristorazione italiana.\nProdotto: {{ $json.query.alt }}\nData consegna: {{ $json.query.delivery }}\nCalcola la data di scadenza sommando alla data di consegna la shelf-life tipica dela categoria del prodotto secondo le normative HACCP italiane (Reg. CE 852/2004).\n\n\nRispondi SOLO con questo JSON, nessun testo aggiuntivo:\n{\"expiry_date\": \"YYYY-MM-DD\", \"rule_applied\": \"<breve descrizione>\"}\n\n",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        768,
+        -480
+      ],
+      "id": "130ece23-3620-4344-a40f-90660da89648",
+      "name": "HACCP EXPIRY RULES1"
+    },
+    {
+      "parameters": {
+        "path": "approve",
+        "options": {
+          "responseData": "CAMBIO ACCETTATO"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        560,
+        -480
+      ],
+      "id": "09568ef8-ec4f-45ea-9bcb-b16b29078497",
+      "name": "WEBHOOK - ACCEPT",
+      "webhookId": "8d4d0d4d-7457-4ca3-8cb9-229d99fa7727"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-flash-lite-latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        752,
+        -352
+      ],
+      "id": "d91f32d0-5c8a-4bb5-bf59-b023f0bd737e",
+      "name": "Google Gemini Chat Model3",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "U7TOA55liM8ftKWj",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.text || '';\nconst cleaned = raw.replace(/```json|```/g, '').trim();\nconst haccp = JSON.parse(cleaned);\nconst q = $('WEBHOOK - ACCEPT').first().json.query;\n\nconst unitCost = q.price && parseFloat(q.price) > 0\n  ? parseFloat((parseFloat(q.price) / parseFloat(q.qty)).toFixed(4))\n  : null;\n\nreturn [{ json: {\n  order_id: parseInt(q.order_id),\n  product_id: parseInt(q.product_id),\n  alt: q.alt,\n  qty: parseFloat(q.qty),\n  unit_cost: unitCost,\n  expiry_date: haccp.expiry_date,\n  batch_number: q.batch || null\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -480
+      ],
+      "id": "4244d808-a310-4a45-bcc8-04fcf139c1b2",
+      "name": "PARSE HACCP"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO batch \n  (batch_number, product_id, initial_quantity, quantity, expiry_date, unit_cost, supplier_id, note)\nSELECT \n  '{{ $json.batch_number }}',\n  {{ $json.product_id }},\n  {{ $json.qty }},\n  {{ $json.qty }},\n  '{{ $json.expiry_date }}',\n  COALESCE({{ $json.unit_cost }}, 0),\n  po.supplier_id,\n  CONCAT('Sostituto di prodotto originale, accettato il ', CURDATE())\nFROM pending_orders po\nWHERE po.order_id = {{ $json.order_id }}\nLIMIT 1;\n\nUPDATE pending_orders\nSET status = 'substituted'\nWHERE order_id = {{ $json.order_id }};\n\nUPDATE rest_inventory ri\nLEFT JOIN (\n  SELECT product_id, SUM(quantity) AS tot_qty,\n         SUM(quantity * unit_cost) / NULLIF(SUM(quantity), 0) AS wac\n  FROM batch GROUP BY product_id\n) agg ON ri.PRODUCT_ID = agg.product_id\nSET ri.QUANTITY = COALESCE(agg.tot_qty, 0),\n    ri.UNIT_COST = COALESCE(agg.wac, ri.UNIT_COST);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1312,
+        -480
+      ],
+      "id": "fb969947-d5c9-4e20-9600-46509c11fe2b",
+      "name": "AGGIORNA SOSTITUITO",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3cedf10c-471d-4848-9491-a0b05cbf8b2b",
+              "leftValue": "={{ $json.sup_mail }}",
+              "rightValue": "@",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        976,
+        -720
+      ],
+      "id": "5086a05d-d092-4287-afbf-115d35bbd8f9",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "path": "reject",
+        "options": {
+          "responseData": "CAMBIO RIFIUTATO"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        560,
+        -720
+      ],
+      "id": "e8549d5c-fc50-479b-9b47-0a24351aa095",
+      "name": "WEBHOOK - RIFIUTA",
+      "webhookId": "e1808aa0-d7b0-4fd8-874d-88eb4b97ea64"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  s.supplier_id,\n  s.sup_name,\n  s.sup_mail,\n  sp.supplier_product_code,\n  ri.NAME,\n  ri.UNIT\nFROM supplier_products sp\nJOIN suppliers s ON sp.supplier_id = s.supplier_id\nJOIN rest_inventory ri ON sp.product_id = ri.PRODUCT_ID\nWHERE sp.product_id = {{ $json.query.product_id }}\nAND sp.is_preferred = 0;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        768,
+        -720
+      ],
+      "id": "291c4d5c-0b7d-43d8-a97b-36f43efe22a4",
+      "name": "CHECK BACKUP SUPPLIERS",
+      "alwaysOutputData": true,
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.sup_mail }}",
+        "subject": "=ORDINE RISTORANTE BORIA'S",
+        "message": "=Gentile {{ $json.sup_name }},\n\nAvremmo bisogno del seguente prodotto:\n\n- Prodotto: {{ $json.NAME }}\n- Codice: {{ $json.supplier_product_code }}\n- Quantità: {{ $('WEBHOOK - RIFIUTA').item.json.query.qty }} {{ $('WEBHOOK - RIFIUTA').item.json.query.unit }}\n\nPuò confermare disponibilità e tempistiche di consegna?\n\nCordiali saluti,\nLo staff del Ristorante Boria's.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1232,
+        -784
+      ],
+      "id": "5eef083d-f7fb-4c20-9d92-316f39483acc",
+      "name": "SEND ORDER BACKUP SUPPLIER1",
+      "webhookId": "a40639a8-65aa-4bf2-b355-c70660aa288b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sentMail = $input.first().json;\nconst secondary = $('SEND ORDER BACKUP SUPPLIER1').item.json;\nconst q = $('WEBHOOK - RIFIUTA').first().json.query;\n\nreturn [{ json: {\n  threadId: sentMail.threadId || '',\n  supplier_id: secondary.supplier_id,\n  product_id: parseInt(q.product_id),\n  supplier_product_code: secondary.supplier_product_code,\n  qty: parseFloat(q.qty),\n  unit: q.unit,\n  order_id: parseInt(q.order_id)\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        -784
+      ],
+      "id": "77082482-f7ce-4284-b00a-dee5701cd42b",
+      "name": "PARSE ORDER1"
+    },
+    {
+      "parameters": {
+        "sendTo": "manager@example.com",
+        "subject": "=⚠️ UNAVAILABILITY ALERT : {{ $('WEBHOOK - RIFIUTA').item.json.query.product_name }}",
+        "message": "=Nessun fornitore secondario disponibile per {{ $('WEBHOOK - RIFIUTA').item.json.query.product_name }}.\n\nID dell'ordine: {{ $('WEBHOOK - RIFIUTA').item.json.query.order_id }}\nFornitore primario non disponibile: {{ $('WEBHOOK - RIFIUTA').item.json.query.sup_name }}\n\nQuantità prevista dall'ordine: {{ $('WEBHOOK - RIFIUTA').item.json.query.qty }} {{ $('WEBHOOK - RIFIUTA').item.json.query.unit }}\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        -624
+      ],
+      "id": "f63c055e-b035-4c53-aaf4-fb89fa6927a8",
+      "name": "UNAVAILABILITY ALERT1",
+      "webhookId": "beed5404-a052-44a9-b6f4-ab119ef5d886",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pending_orders \n  (supplier_id, product_id, supplier_product_code, ordered_quantity, ordered_unit, gmail_thread_id)\nVALUES \n  ({{ $('CHECK BACKUP SUPPLIERS').item.json.supplier_id }}, {{ $json.product_id }}, '{{ $('CHECK BACKUP SUPPLIERS').item.json.supplier_product_code }}', {{ $json.qty }}, '{{ $json.unit }}', '{{ $json.threadId }}');\n\nUPDATE pending_orders\nSET status = 'unavailable'\nWHERE order_id = {{ $json.order_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1616,
+        -784
+      ],
+      "id": "83618c3b-d122-4f4a-b059-c2e41cf284f7",
+      "name": "UPDATE UNAVAILABLE AND SET NEW PENDING",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pending_orders \nSET status = 'unavailable'\nWHERE order_id = {{ $('WEBHOOK - RIFIUTA').item.json.query.order_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1456,
+        -624
+      ],
+      "id": "c501c871-0b5a-4bb8-b87f-ce1cc548e265",
+      "name": "UPDATE UNAVAILABLE",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "MAIL INTERPETER",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POLL SUPPLIER MAILS": {
+      "main": [
+        [
+          {
+            "node": "SELECT UNREAD MAILS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SELECT UNREAD MAILS": {
+      "main": [
+        [
+          {
+            "node": "PREPARE AI CONTEXT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MAIL INTERPETER": {
+      "main": [
+        [
+          {
+            "node": "PARSE AI RESPONSE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PARSE AI RESPONSE": {
+      "main": [
+        [
+          {
+            "node": "SUPPLIER RESPONSE SWITCH",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HACCP EXPIRY RULES": {
+      "main": [
+        [
+          {
+            "node": "PARSE HACCP RULES",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "HACCP EXPIRY RULES",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PARSE HACCP RULES": {
+      "main": [
+        [
+          {
+            "node": "ORDER CONFIRMED;INVENTORY UPDATED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PREPARE AI CONTEXT": {
+      "main": [
+        [
+          {
+            "node": "MAIL INTERPETER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FIND BACKUP SUPPLIERS": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "SEND ORDER BACKUP SUPPLIER",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "UNAVAILABILITY ALERT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SEND ORDER BACKUP SUPPLIER": {
+      "main": [
+        [
+          {
+            "node": "PARSE ORDER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UNAVAILABILITY ALERT": {
+      "main": [
+        [
+          {
+            "node": "UPDATE ORDER STATUS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "HACCP EXPIRY RULES2",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HACCP EXPIRY RULES2": {
+      "main": [
+        [
+          {
+            "node": "PARSE HACCP PARTIAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UPDATE PARTIAL ORDER": {
+      "main": [
+        [
+          {
+            "node": "FIND BACKUP SUPPLIERS1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FIND BACKUP SUPPLIERS1": {
+      "main": [
+        [
+          {
+            "node": "IF 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF 2": {
+      "main": [
+        [
+          {
+            "node": "ORDER MISSING QUANTITY",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ALERT PARTIALITY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PARSE HACCP PARTIAL": {
+      "main": [
+        [
+          {
+            "node": "UPDATE PARTIAL ORDER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ORDER MISSING QUANTITY": {
+      "main": [
+        [
+          {
+            "node": "PARSE ORDER2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PARSE ORDER": {
+      "main": [
+        [
+          {
+            "node": "UPDATE ORDER STATUS1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PARSE ORDER2": {
+      "main": [
+        [
+          {
+            "node": "UPDATE ORDER STATUS2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SUPPLIER RESPONSE SWITCH": {
+      "main": [
+        [
+          {
+            "node": "HACCP EXPIRY RULES",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ACCEPT/REJECT MESSAGE",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HACCP EXPIRY RULES2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FIND BACKUP SUPPLIERS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ACCEPT/REJECT MESSAGE": {
+      "main": [
+        []
+      ]
+    },
+    "HACCP EXPIRY RULES1": {
+      "main": [
+        [
+          {
+            "node": "PARSE HACCP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK - ACCEPT": {
+      "main": [
+        [
+          {
+            "node": "HACCP EXPIRY RULES1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "HACCP EXPIRY RULES1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PARSE HACCP": {
+      "main": [
+        [
+          {
+            "node": "AGGIORNA SOSTITUITO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "SEND ORDER BACKUP SUPPLIER1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "UNAVAILABILITY ALERT1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WEBHOOK - RIFIUTA": {
+      "main": [
+        [
+          {
+            "node": "CHECK BACKUP SUPPLIERS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CHECK BACKUP SUPPLIERS": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SEND ORDER BACKUP SUPPLIER1": {
+      "main": [
+        [
+          {
+            "node": "PARSE ORDER1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PARSE ORDER1": {
+      "main": [
+        [
+          {
+            "node": "UPDATE UNAVAILABLE AND SET NEW PENDING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UNAVAILABILITY ALERT1": {
+      "main": [
+        [
+          {
+            "node": "UPDATE UNAVAILABLE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "26bb0381-6b70-4953-92f1-e345811370ef",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": ""
+  },
+  "id": "SG58Ag7M5s-MhXSJVKYSg",
+  "tags": []
+}

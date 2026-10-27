@@ -1,0 +1,541 @@
+{
+  "name": "1-AGENTIC INVENTORY 4 RESTAURANTS",
+  "nodes": [
+    {
+      "parameters": {
+        "modelName": "models/gemini-flash-lite-latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -1440,
+        -64
+      ],
+      "id": "1e62ff55-320f-4f1e-8de5-20c4aaa92810",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "U7TOA55liM8ftKWj",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "=ORDINE RISTORANTE BORIA'S",
+        "message": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Message', ``, 'string') }}",
+        "options": {
+          "sendTo": "={{ $json.SupplierEmail }}"
+        }
+      },
+      "type": "n8n-nodes-base.gmailTool",
+      "typeVersion": 2.2,
+      "position": [
+        -1280,
+        -64
+      ],
+      "id": "1ae92449-e421-4517-a623-d06e9281eab8",
+      "name": "Create a draft in Gmail",
+      "webhookId": "6f348ca1-8ce2-41f9-8b48-d6614db7622c",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    ORDER_ID,\n    TABLE_NUM,\n    DISH_O AS DishOrdered ,\n    QUANTITY ,\n    ORDER_DATE\nFROM orders\nWHERE ORDER_DATE >= NOW() - INTERVAL 8 HOUR\nORDER BY ORDER_DATE DESC;",
+        "options": {
+          "connectionTimeoutMillis": 2000
+        }
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -2560,
+        -96
+      ],
+      "id": "cca1e207-6a65-4f31-97ce-8f7371411264",
+      "name": "CHECK NEW ORDERS",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "manager@example.com",
+        "subject": "SCORTE INVENTARIO OK",
+        "emailType": "text",
+        "message": "Controllo completato. Nessun prodotto è sotto la soglia minima. Eventuali lotti in scadenza sono segnalati in una mail separata.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -1664,
+        -96
+      ],
+      "id": "af19c1b3-d501-4479-b621-6fcc4cc4ece9",
+      "name": "INVENTORY OK",
+      "webhookId": "ed56baec-bc6f-4d0b-9319-efe5d8d1aa71",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "manager@example.com",
+        "subject": "=⚠️ Lotti in scadenza ({{ $json.count }})",
+        "emailType": "text",
+        "message": "={{ $json.alertBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -1664,
+        96
+      ],
+      "id": "688d069b-abd7-4be8-95af-f86c4a30b824",
+      "name": "EXPIRY ALERT",
+      "webhookId": "94283e01-b08e-4d92-82c4-fb3f9843ba02",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "==Analizza questi prodotti da ordinare al fornitore {{ $json.SupplierName }}:\n\n{{ $json.ProductSummary }}\n\nNote fornitore: {{ $json.SupplierNotes }}\nEmail fornitore: {{ $json.SupplierEmail }}\n\nAZIONE: Crea UNA SOLA bozza email che includa TUTTI i prodotti elencati sopra in un unico ordine. Una volta creata la bozza, rispondi solo con 'Bozza creata' e fermati.",
+        "options": {
+          "systemMessage": "Ruolo: Sei l'Assistente Logistico del ristorante. Il tuo compito è monitorare il magazzino e decidere se ordinare nuova merce o avvisare lo staff per prodotti in scadenza.\n\nLogica di Decisione:\n\nSOTTO SCORTA o VICINO ALLA SCADENZA: Se CurrentStock  è inferiore o uguale a MIN_STOCK o se EXPIRY_DATE è a 3 giorni dalla scadenza, prepara una bozza di email professionale per il fornitore SupplierName.\n\nLinee Guida per le Email:\nApproccio: Sii gentile e coinciso\n\nContenuto: Richiedi SuggestedOrderQty unità di ProductName.\n\nPrecisione: Cita sempre il codice articolo del fornitore: SupplierCode.\n\nPersonalizzazione: Leggi attentamente le SupplierNotes. Se indicano orari preferiti o nomi di referenti (es. \"Chiedere di Mario\"), usali nella mail.\n\nAlla fine firmati sempre con: Cordiali saluti, Lo staff del Ristorante Boria's\n\nOutput richiesto: Utilizza lo strumento di creazione bozza. IMPORTANTE: Non appena ricevi conferma dal tool che la bozza è stata creata, fornisci una 'Final Answer' brevissima (es: 'Bozza creata') e fermati. Non iterare ulteriormente\n\n",
+          "maxIterations": 2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -1440,
+        -288
+      ],
+      "id": "bb707bdb-9650-47a1-844a-f5af85223a7e",
+      "name": "ORDER MAKER"
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "operation": "getAll",
+        "limit": 1,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -1088,
+        -288
+      ],
+      "id": "2375069a-d268-4966-a104-b0a7889ceacc",
+      "name": "GET LAST DRAFT",
+      "webhookId": "daf88cf1-ba3f-42ac-8a11-c9ac9934d325",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst grouped = {};\n\nitems.forEach(function(item) {\n  const email = item.json.SupplierEmail || 'nessun_fornitore';\n  \n  if (!grouped[email]) {\n    grouped[email] = {\n      SupplierEmail: email,\n      SupplierName: item.json.SupplierName,\n      SupplierNotes: item.json.SupplierNotes,\n      products: []\n    };\n  }\n  \n  grouped[email].products.push({\n    ProductName: item.json.ProductName,\n    SupplierCode: item.json.SupplierCode,\n    SuggestedOrderQty: item.json.SuggestedOrderQty,\n    Unit: item.json.UNIT || 'unità',\n    CurrentStock: item.json.CurrentStock,\n    MIN_STOCK: item.json.MIN_STOCK,\n    EXPIRY_DATE: item.json.EXPIRY_DATE,\n    CatalogPrice: item.json.CatalogPrice\n  });\n});\n\nreturn Object.values(grouped).map(function(supplier) {\n  const productLines = supplier.products.map(function(p) {\n    return '- ' + p.ProductName + ' | Codice: ' + p.SupplierCode + ' | Quantità: ' + p.SuggestedOrderQty + ' ' + p.Unit + ' | Giacenza attuale: ' + p.CurrentStock + ' ' + p.Unit;\n  }).join('\\n');\n  \n  return {\n    json: {\n      SupplierEmail: supplier.SupplierEmail,\n      SupplierName: supplier.SupplierName,\n      SupplierNotes: supplier.SupplierNotes,\n      ProductSummary: productLines,\n      products: supplier.products\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1664,
+        -288
+      ],
+      "id": "382c3490-853f-4f45-9b22-cf8701456a6c",
+      "name": "GROUP BY SUPPLIER"
+    },
+    {
+      "parameters": {
+        "jsCode": "const draft = $input.first().json;\nconst orderData = $('GROUP BY SUPPLIER').first().json;\n\nconst threadId = draft.threadId || '';\nconst products = orderData.products || [];\n\nreturn products.map(function(p) {\n  return {\n    json: {\n      threadId: threadId,\n      supplierEmail: orderData.SupplierEmail,\n      supplierName: orderData.SupplierName,\n      productName: p.ProductName,\n      supplierCode: p.SupplierCode,\n      orderedQty: p.SuggestedOrderQty,\n      orderedUnit: p.Unit,\n      catalogPrice: p.CatalogPrice\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -864,
+        -288
+      ],
+      "id": "adccfa92-c49e-4bcd-be67-4aca0b3c9372",
+      "name": "EXTRACT DRAFT THREAD DATA"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pending_orders \n  (supplier_id, product_id, supplier_product_code, ordered_quantity, ordered_unit, gmail_thread_id)\nSELECT \n  s.supplier_id,\n  sp.product_id,\n  '{{ $json.supplierCode }}',\n  {{ $json.orderedQty }},\n  '{{ $json.orderedUnit }}',\n  '{{ $json.threadId }}'\nFROM suppliers s\nJOIN supplier_products sp ON s.supplier_id = sp.supplier_id\nWHERE s.sup_mail = '{{ $json.supplierEmail }}'\nAND sp.supplier_product_code = '{{ $json.supplierCode }}'\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ $json.supplierCode }},{{ $json.orderedQty }},{{ $json.orderedUnit }},{{ $json.threadId }},{{ $json.supplierEmail }}"
+        }
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -640,
+        -288
+      ],
+      "id": "8794337d-1772-4ace-867f-0a6c64899787",
+      "name": "CREATE PENDING ORDER",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "START TRANSACTION;\n\nCREATE TEMPORARY TABLE tmp_need AS\nSELECT \n  r.PROD_R_ID AS product_id,\n  SUM(r.Q_NEEDED * o.Tot_Dish_Sold) AS need\nFROM recipe r\nJOIN (\n  SELECT DISH_O, SUM(QUANTITY) AS Tot_Dish_Sold\n  FROM orders\n  WHERE ORDER_DATE >= NOW() - INTERVAL 8 HOUR\n  GROUP BY DISH_O\n) o ON r.DISH_NAME = o.DISH_O\nGROUP BY r.PROD_R_ID;\n\nCREATE TEMPORARY TABLE tmp_batch AS\nSELECT \n  b.batch_id,\n  b.product_id,\n  b.quantity,\n  COALESCE(SUM(b.quantity) OVER (\n    PARTITION BY b.product_id \n    ORDER BY b.expiry_date ASC, b.batch_id ASC \n    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING\n  ), 0) AS qty_before\nFROM batch b\nWHERE b.quantity > 0;\n\nCREATE TEMPORARY TABLE tmp_consume AS\nSELECT \n  tb.batch_id,\n  GREATEST(0, LEAST(tb.quantity, tn.need - tb.qty_before)) AS consumed\nFROM tmp_batch tb\nJOIN tmp_need tn ON tb.product_id = tn.product_id;\n\nINSERT INTO batch_archive \n  (batch_id, batch_number, product_id, initial_quantity, expiry_date, unit_cost, supplier_id, received_date)\nSELECT b.batch_id, b.batch_number, b.product_id, b.initial_quantity, b.expiry_date, b.unit_cost, b.supplier_id, b.received_date\nFROM batch b\nJOIN tmp_consume tc ON b.batch_id = tc.batch_id\nWHERE (b.quantity - tc.consumed) <= 0 AND tc.consumed > 0;\n\nDELETE b FROM batch b\nJOIN tmp_consume tc ON b.batch_id = tc.batch_id\nWHERE (b.quantity - tc.consumed) <= 0 AND tc.consumed > 0;\n\nUPDATE batch b\nJOIN tmp_consume tc ON b.batch_id = tc.batch_id\nSET b.quantity = b.quantity - tc.consumed\nWHERE (b.quantity - tc.consumed) > 0 AND tc.consumed > 0;\n\nDROP TEMPORARY TABLE tmp_need;\nDROP TEMPORARY TABLE tmp_batch;\nDROP TEMPORARY TABLE tmp_consume;\n\nUPDATE rest_inventory ri\nLEFT JOIN (\n  SELECT product_id, SUM(quantity) AS tot_qty,\n         SUM(quantity * unit_cost) / NULLIF(SUM(quantity), 0) AS wac\n  FROM batch GROUP BY product_id\n) agg ON ri.PRODUCT_ID = agg.product_id\nSET ri.QUANTITY = COALESCE(agg.tot_qty, 0),\n    ri.UNIT_COST = COALESCE(agg.wac, ri.UNIT_COST);\n\nCOMMIT;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -2336,
+        -96
+      ],
+      "id": "7b3fa2d8-55cd-4a87-a9e5-71c3bfbbf457",
+      "name": "MANAGE BATCHES AND INVENTORY",
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().filter(i => i.json.batch_id);\n\nif (items.length === 0) {\n  return [];\n}\n\nconst lines = items.map(function(it) {\n  const d = it.json;\n  const days = d.DaysToExpiry;\n  const stato = days < 0 \n    ? 'GIÀ SCADUTO da ' + Math.abs(days) + ' giorni'\n    : days === 0 \n      ? 'SCADE OGGI' \n      : 'scade tra ' + days + ' giorni';\n  return '- ' + d.ProductName + ' (lotto ' + (d.batch_number || 'n/d') + '): ' \n    + d.BatchQuantity + ' ' + (d.UNIT || '') + ' — ' + stato \n    + ' (' + d.expiry_date + ')';\n}).join('\\n');\n\nconst body = 'Lotti in scadenza nei prossimi 3 giorni:\\n\\n' + lines \n  + '\\n\\nUsare con priorità i lotti più vicini alla scadenza (FEFO).';\n\nreturn [{ json: { alertBody: body, count: items.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1888,
+        96
+      ],
+      "id": "f4626c38-8e61-43d8-81c4-d6321b9d9a21",
+      "name": "PARSE EXPIRY ALERT"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  ri.PRODUCT_ID,\n  ri.NAME AS ProductName,\n  COALESCE(SUM(b.quantity), 0) AS CurrentStock,\n  ri.MIN_STOCK,\n  ri.UNIT,\n  s.sup_name AS SupplierName,\n  s.sup_mail AS SupplierEmail,\n  sp.supplier_product_code AS SupplierCode,\n  sp.price_per_unit AS CatalogPrice,\n  CEILING(((ri.MIN_STOCK * 2) - COALESCE(SUM(b.quantity), 0)) * 10) / 10 AS SuggestedOrderQty,\n  s.notes AS SupplierNotes\nFROM rest_inventory ri\nLEFT JOIN batch b ON b.product_id = ri.PRODUCT_ID\nLEFT JOIN (\n  SELECT \n    product_id, supplier_id, supplier_product_code, price_per_unit,\n    ROW_NUMBER() OVER(PARTITION BY product_id ORDER BY is_preferred DESC) AS rn\n  FROM supplier_products\n) sp ON ri.PRODUCT_ID = sp.product_id AND sp.rn = 1\nLEFT JOIN suppliers s ON sp.supplier_id = s.supplier_id\nGROUP BY ri.PRODUCT_ID, ri.NAME, ri.MIN_STOCK, ri.UNIT, s.sup_name, s.sup_mail, sp.supplier_product_code, sp.price_per_unit, s.notes\nHAVING COALESCE(SUM(b.quantity), 0) <= ri.MIN_STOCK;",
+        "options": {
+          "connectionTimeoutMillis": 2000
+        }
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -2112,
+        -288
+      ],
+      "id": "e2c56d99-e7ee-4e76-ad8c-00ff05856011",
+      "name": "CHECK FOR SHORTAGE",
+      "alwaysOutputData": true,
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  b.batch_id,\n  b.batch_number,\n  ri.NAME AS ProductName,\n  b.quantity AS BatchQuantity,\n  ri.UNIT,\n  b.expiry_date,\n  DATEDIFF(b.expiry_date, CURDATE()) AS DaysToExpiry\nFROM batch b\nJOIN rest_inventory ri ON b.product_id = ri.PRODUCT_ID\nWHERE b.quantity > 0\n  AND b.expiry_date <= CURDATE() + INTERVAL 3 DAY\nORDER BY b.expiry_date ASC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -2112,
+        96
+      ],
+      "id": "815e3d97-ede5-44d3-b1d2-9ff59954a1be",
+      "name": "CHECK EXPIRY",
+      "alwaysOutputData": false,
+      "credentials": {
+        "mySql": {
+          "id": "0FVMaEyjEGzokRES",
+          "name": "DB INVENTORY"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "33dc1916-5ab5-467f-8722-62dcc756871b",
+              "leftValue": "={{ $json.PRODUCT_ID }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1888,
+        -288
+      ],
+      "id": "535d0464-ef03-4362-a413-307db56a8970",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "sendTo": "manager@example.com",
+        "subject": "⚠️ SHORTAGE ALERT!",
+        "message": "={{ $json.ProductName }} E' IN BASSA GIACENZA\n\n\nSTOCK CORRENTE : {{ $json.CurrentStock }}\nSTOCK MINIMO: {{ $json.MIN_STOCK }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -1664,
+        -480
+      ],
+      "id": "d9434253-eb4d-41ca-bb8f-9bd22fe88858",
+      "name": "SHORTAGE ALERT",
+      "webhookId": "ea4b0f30-36e1-43a6-9454-f9cf3abe0300",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "h7856dDnrWrUKQh3",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -2784,
+        -96
+      ],
+      "id": "70fda669-a75a-4cbd-94e8-74ca6abc0237",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "ORDER MAKER",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a draft in Gmail": {
+      "ai_tool": [
+        [
+          {
+            "node": "ORDER MAKER",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CHECK NEW ORDERS": {
+      "main": [
+        [
+          {
+            "node": "MANAGE BATCHES AND INVENTORY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ORDER MAKER": {
+      "main": [
+        [
+          {
+            "node": "GET LAST DRAFT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET LAST DRAFT": {
+      "main": [
+        [
+          {
+            "node": "EXTRACT DRAFT THREAD DATA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GROUP BY SUPPLIER": {
+      "main": [
+        [
+          {
+            "node": "ORDER MAKER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EXTRACT DRAFT THREAD DATA": {
+      "main": [
+        [
+          {
+            "node": "CREATE PENDING ORDER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MANAGE BATCHES AND INVENTORY": {
+      "main": [
+        [
+          {
+            "node": "CHECK FOR SHORTAGE",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CHECK EXPIRY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PARSE EXPIRY ALERT": {
+      "main": [
+        [
+          {
+            "node": "EXPIRY ALERT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CHECK FOR SHORTAGE": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CHECK EXPIRY": {
+      "main": [
+        [
+          {
+            "node": "PARSE EXPIRY ALERT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "GROUP BY SUPPLIER",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "SHORTAGE ALERT",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "INVENTORY OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "CHECK NEW ORDERS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "49116ec8-07b1-4609-bdad-0ed4190a12c4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": ""
+  },
+  "id": "ppCrS2WwrSQ6rceVulqEo",
+  "tags": []
+}

@@ -4,7 +4,7 @@ Sistema agentico che automatizza la gestione dell'inventario e degli ordini ai f
 
 Progetto sviluppato per la tesi sperimentale di laurea triennale in **Digital Economics and Business**, relatore Prof. Alex Mircoli (Università Politecnica delle Marche, luglio 2026).
 
-**Stack:** n8n (self-hosting su VPS Hostinger) · MariaDB · Google Gemini via API · Gmail API · JavaScript
+**Stack:** n8n (self-hosting su VPS Hostinger) · MariaDB · Google Gemini via API · Gmail API 
 
 ---
 
@@ -44,7 +44,7 @@ flowchart LR
 
 
 1. Ogni 5 minuti controlla le email non lette e le abbina agli ordini in attesa tramite il thread Gmail.
-2. Un **LLM** interpreta l'email (testo libero) e restituisce per ogni prodotto un JSON strutturato: stato, quantità confermata, prezzo, numero di lotto, data di consegna.
+2. Un **LLM** interpreta l'email (testo libero) e restituisce per ogni prodotto un JSON strutturato(AI generated): stato, quantità confermata, prezzo, numero di lotto, data di consegna.
 3. In base allo stato:
 
 | Stato | Cosa fa il sistema |
